@@ -24,7 +24,7 @@ extension SIMD3 where Scalar == Double {
     }
 
     var lengthSquared: Double {
-        x * x + y * y + z * z
+        dot(self)
     }
 
     var unitVector: Self {
@@ -67,14 +67,14 @@ struct Ray {
 
     func hit(sphere: Sphere) -> Double? {
         let originToCenter = origin - sphere.center;
-        let a = direction.dot(direction)
-        let b = 2.0 * originToCenter.dot(direction)
-        let c = originToCenter.dot(originToCenter) - sphere.radius * sphere.radius
-        let discriminant = b * b - 4 * a * c
+        let a = direction.lengthSquared
+        let half_b = originToCenter.dot(direction)
+        let c = originToCenter.lengthSquared - sphere.radius * sphere.radius
+        let discriminant = half_b * half_b - a * c
         if discriminant < 0.0 {
             return nil
         } else {
-            return (-b - sqrt(discriminant)) / (2.0 * a)
+            return (-half_b - sqrt(discriminant)) / a
         }
     }
 }

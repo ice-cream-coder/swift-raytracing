@@ -48,6 +48,15 @@ extension SIMD3 where Scalar == Double {
         simd.cross(self, o)
     }
 
+    var isNearZero: Bool {
+        let s = 1e-8
+        return abs(x) < s && abs(y) < s && abs(z) < s
+    }
+
+    func reflect(normal: Self) -> Self {
+        self - 2 * self.dot(normal) * normal
+    }
+
     static func random() -> Self {
         Self(x: Double.random(in: 0.0..<1.0),
              y: Double.random(in: 0.0..<1.0),
@@ -109,14 +118,16 @@ struct Ray {
 struct HitRecord {
     let point: Point
     let normal: Vector
+    var material: Material
     let t: Double
     let frontFace: Bool
 
-    init(ray: Ray, t: Double, outwardNormal: Vector) {
+    init(ray: Ray, t: Double, outwardNormal: Vector, material: Material) {
         self.t = t
         point = ray.at(t)
         frontFace = ray.direction.dot(outwardNormal) < 0
         normal = frontFace ? outwardNormal : -outwardNormal
+        self.material = material
     }
 }
 
@@ -124,9 +135,58 @@ protocol Hittable {
     func hit(ray: Ray, tMin: Double, tMax: Double) -> HitRecord?
 }
 
+protocol Material: AnyObject {
+    func scatter(ray: Ray, hit: HitRecord) -> (attenuation: Color, scattered: Ray)?
+}
+
+class Lambertian: Material {
+    let albedo: Color
+
+    init(albedo: Color) {
+        self.albedo = albedo
+    }
+
+    func scatter(ray: Ray, hit: HitRecord) -> (attenuation: Color, scattered: Ray)? {
+        var scatterDirection = hit.normal + Vector.randomUnitVector()
+
+        if scatterDirection.isNearZero {
+            scatterDirection = hit.normal
+        }
+
+        return (
+            attenuation: albedo,
+            scattered: Ray(origin: hit.point, direction: scatterDirection)
+        )
+    }
+}
+
+class Metal : Material {
+    let albedo: Color
+    let fuzz: Double
+
+    init(albedo: Color, fuzz: Double) {
+        self.albedo = albedo
+        self.fuzz = fuzz
+    }
+
+    func scatter(ray: Ray, hit: HitRecord) -> (attenuation: Color, scattered: Ray)? {
+        let reflected = ray.direction.unitVector.reflect(normal: hit.normal)
+        let scattered = Ray(origin: hit.point, direction: reflected + fuzz * Vector.randomInUnitSphere())
+        if dot(scattered.direction, hit.normal) > 0 {
+            return (
+                attenuation: albedo,
+                scattered: scattered
+            )
+        } else {
+            return nil
+        }
+    }
+}
+
 struct Sphere: Hittable {
     let center: Point
     let radius: Double
+    let material: Material
 
     func hit(ray: Ray, tMin: Double, tMax: Double) -> HitRecord? {
         let originToCenter = ray.origin - center;
@@ -145,7 +205,7 @@ struct Sphere: Hittable {
             }
         }
         let hitPoint = ray.at(root)
-        return HitRecord(ray: ray, t: root, outwardNormal: (hitPoint - center) / radius)
+        return HitRecord(ray: ray, t: root, outwardNormal: (hitPoint - center) / radius, material: material)
     }
 }
 
@@ -187,16 +247,26 @@ struct Camera {
     }
 }
 
+let groundMaterial = Lambertian(albedo: .init(r: 0.8, g: 0.8, b: 0.0))
+let centerMaterial = Lambertian(albedo: .init(r: 0.7, g: 0.3, b: 0.3))
+let leftMaterial = Metal(albedo: .init(r: 0.8, g: 0.8, b: 0.3), fuzz: 0.3)
+let rightMaterial = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 1.0)
+
 let world = HittableList(objects: [
-    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5),
-    Sphere(center: Point(x: 0.0, y: -100.5, z: -1.0), radius: 100.0)
+    Sphere(center: Point(x: 0.0, y: -100.5, z: -1.0), radius: 100.0, material: groundMaterial),
+    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5, material: centerMaterial),
+    Sphere(center: Point(x: -1.0, y: 0.0, z: -1.0), radius: 0.5, material: leftMaterial),
+    Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: rightMaterial),
 ])
 
 func color(for ray: Ray, depth: Int) -> Color {
     guard depth > 0 else { return Color.black }
-    if let hit = world.hit(ray: ray, tMin: 0.001, tMax: .infinity) {
-        let target = hit.point + hit.normal.randomInHemisphere()
-        return 0.5 * color(for: Ray(origin: hit.point, direction: target - hit.point), depth: depth - 1)
+    if let hit = world.hit(ray: ray, tMin: 0.001, tMax: Double.infinity) {
+        if let (attenuation, scattered) = hit.material.scatter(ray: ray, hit: hit) {
+            return attenuation * color(for: scattered, depth: depth - 1)
+        } else {
+            return Color.black
+        }
     } else {
         let t = 0.5 * (ray.direction.unitVector.y + 1.0)
         return (1.0 - t) * Color.white + t * Color(r: 0.5, g: 0.7, b: 1.0)

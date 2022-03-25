@@ -201,11 +201,27 @@ class Dielectric: Material {
         let refractionRatio = hit.frontFace ? 1.0 / ir : ir
 
         let unitDirection = ray.direction.unitVector
-        let refracted = unitDirection.refract(normal: hit.normal, etaiOverEtat: refractionRatio)
+        let cosTheta = Swift.min(-unitDirection.dot(hit.normal), 1.0)
+        let sinTheta = (1.0 - cosTheta * cosTheta).squareRoot()
+
+        let cannotRefract = refractionRatio * sinTheta > 1.0;
+
+        let direction: Vector
+        if cannotRefract || reflectance(cosTheta, refractionRatio) > Double.random(in: 0...1.0) {
+            direction = reflect(unitDirection, n: hit.normal);
+        } else {
+            direction = refract(unitDirection, n: hit.normal, eta: refractionRatio);
+        }
         return (
             attenuation: .white,
-            scattered: Ray(origin: hit.point, direction: refracted)
+            scattered: Ray(origin: hit.point, direction: direction)
         )
+    }
+
+    func reflectance(_ cosine: Double, _ refrationIndex: Double) -> Double {
+        var r0 = (1 - refrationIndex) / (1 + refrationIndex)
+        r0 = r0 * r0
+        return r0 + (1 - r0) * pow(1 - cosine, 5)
     }
 }
 
@@ -275,16 +291,17 @@ struct Camera {
 
 let groundMaterial = Lambertian(albedo: .init(r: 0.8, g: 0.8, b: 0.0))
 let pinkDiffuse = Lambertian(albedo: .init(r: 0.7, g: 0.3, b: 0.3))
+let darkBlueDiffuse = Lambertian(albedo: .init(r: 0.1, g: 0.2, b: 0.5))
 let metal1 = Metal(albedo: .init(r: 0.8, g: 0.8, b: 0.3), fuzz: 0.3)
 let metal2 = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 1.0)
+let metal3 = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 0.0)
 let glass1_5 = Dielectric(ir: 1.5)
-let glass2 = Dielectric(ir: 2.0)
 
 let world = HittableList(objects: [
     Sphere(center: Point(x: 0.0, y: -100.5, z: -1.0), radius: 100.0, material: groundMaterial),
-    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5, material: glass2),
+    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5, material: darkBlueDiffuse),
     Sphere(center: Point(x: -1.0, y: 0.0, z: -1.0), radius: 0.5, material: glass1_5),
-    Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: metal2),
+    Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: metal3),
 ])
 
 func color(for ray: Ray, depth: Int) -> Color {

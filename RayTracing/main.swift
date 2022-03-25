@@ -111,6 +111,7 @@ extension Color {
     static let white: Color = .init(r: 1.0, g: 1.0, b: 1.0)
     static let black: Color = .init(r: 0.0, g: 0.0, b: 0.0)
     static let red: Color = .init(r: 1.0, g: 0.0, b: 0.0)
+    static let blue: Color = .init(r: 0.0, g: 0.0, b: 1.0)
 }
 
 struct Ray {
@@ -266,32 +267,48 @@ struct HittableList: Hittable {
     }
 }
 
+func deg2rad(_ number: Double) -> Double {
+    number * .pi / 180
+}
+
 struct Camera {
     let origin: Point
     let lowerLeftCorner: Point
     let horizontal: Vector
     let vertical: Vector
 
-    init() {
-        let aspectRatio = 16.0 / 9.0
-        let viewportHeight = 2.0;
+    init(
+        lookFrom: Point,
+        lookAt: Point,
+        vup: Vector,
+        verticalFieldOfView: Double,
+        aspectRatio: Double
+    ) {
+        let theta = deg2rad(verticalFieldOfView)
+        let h = tan(theta / 2)
+        let viewportHeight = 2.0 * h;
         let viewportWidth = aspectRatio * viewportHeight;
-        let focalLength = 1.0;
 
-        origin = Point(x: 0, y: 0, z: 0)
-        horizontal =  Vector(x: viewportWidth, y: 0, z: 0)
-        vertical = Vector(x: 0, y: viewportHeight, z: 0)
-        lowerLeftCorner = origin - horizontal / 2 - vertical / 2 - Vector(x: 0, y: 0, z: focalLength)
+        let w = (lookFrom - lookAt).unitVector
+        let u = vup.cross(w).unitVector
+        let v = w.cross(u)
+
+        origin = lookFrom
+        horizontal = viewportWidth * u
+        vertical = viewportHeight * v
+        lowerLeftCorner = origin - horizontal / 2 - vertical / 2 - w
     }
 
-    func getRay(u: Double, v: Double) -> Ray {
-        Ray(origin: origin, direction: lowerLeftCorner + u * horizontal + v * vertical - origin)
+    func getRay(s: Double, t: Double) -> Ray {
+        Ray(origin: origin, direction: lowerLeftCorner + s * horizontal + t * vertical - origin)
     }
 }
 
 let groundMaterial = Lambertian(albedo: .init(r: 0.8, g: 0.8, b: 0.0))
 let pinkDiffuse = Lambertian(albedo: .init(r: 0.7, g: 0.3, b: 0.3))
 let darkBlueDiffuse = Lambertian(albedo: .init(r: 0.1, g: 0.2, b: 0.5))
+let redDiffuse = Lambertian(albedo: .red)
+let blueDiffuse = Lambertian(albedo: .blue)
 let metal1 = Metal(albedo: .init(r: 0.8, g: 0.8, b: 0.3), fuzz: 0.3)
 let metal2 = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 1.0)
 let metal3 = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 0.0)
@@ -303,6 +320,13 @@ let world = HittableList(objects: [
     Sphere(center: Point(x: -1.0, y: 0.0, z: -1.0), radius: 0.5, material: glass1_5),
     Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: metal3),
 ])
+
+//let R = cos(Double.pi / 4)
+//
+//let world = HittableList(objects: [
+//    Sphere(center: Point(x: -R, y: 0.0, z: -1.0), radius: R, material: blueDiffuse),
+//    Sphere(center: Point(x: R, y: 0.0, z: -1.0), radius: R, material: redDiffuse),
+//])
 
 func color(for ray: Ray, depth: Int) -> Color {
     guard depth > 0 else { return Color.black }
@@ -328,7 +352,13 @@ let maxDepth = 50
 
 // Camera
 
-let camera = Camera()
+let camera = Camera(
+    lookFrom: Point(x: -2.0, y: 2.0, z: 1.0),
+    lookAt: Point(x: 0.0, y: 0.0, z: -1.0),
+    vup: Vector(x: 0.0, y: 1.0, z: 0.0),
+    verticalFieldOfView: 20.0,
+    aspectRatio: aspectRatio
+)
 
 // Render
 
@@ -342,7 +372,7 @@ for _j in 0..<imageHeight {
             let u = (Double(i) + Double.random(in: 0..<1)) / Double(imageWidth - 1)
             let v = (Double(j) + Double.random(in: 0..<1)) / Double(imageHeight - 1)
 
-            let ray = camera.getRay(u: u, v: v)
+            let ray = camera.getRay(s: u, t: v)
             pixelColor += color(for: ray, depth: maxDepth)
         }
         print(pixelColor.colorString(samples: samplesPerPixel))

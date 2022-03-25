@@ -57,6 +57,13 @@ extension SIMD3 where Scalar == Double {
         self - 2 * self.dot(normal) * normal
     }
 
+    func refract(normal: Vector, etaiOverEtat: Double) -> Self {
+        let cosTheta = Swift.min((-self).dot(normal), 1.0)
+        let rOutPerp = etaiOverEtat * (self + cosTheta * normal)
+        let rOutParallel = -abs(1.0 - rOutPerp.lengthSquared).squareRoot() * normal
+        return rOutPerp + rOutParallel
+    }
+
     static func random() -> Self {
         Self(x: Double.random(in: 0.0..<1.0),
              y: Double.random(in: 0.0..<1.0),
@@ -183,6 +190,25 @@ class Metal : Material {
     }
 }
 
+class Dielectric: Material {
+    let ir: Double
+
+    init(ir: Double) {
+        self.ir = ir
+    }
+
+    func scatter(ray: Ray, hit: HitRecord) -> (attenuation: Color, scattered: Ray)? {
+        let refractionRatio = hit.frontFace ? 1.0 / ir : ir
+
+        let unitDirection = ray.direction.unitVector
+        let refracted = unitDirection.refract(normal: hit.normal, etaiOverEtat: refractionRatio)
+        return (
+            attenuation: .white,
+            scattered: Ray(origin: hit.point, direction: refracted)
+        )
+    }
+}
+
 struct Sphere: Hittable {
     let center: Point
     let radius: Double
@@ -248,15 +274,17 @@ struct Camera {
 }
 
 let groundMaterial = Lambertian(albedo: .init(r: 0.8, g: 0.8, b: 0.0))
-let centerMaterial = Lambertian(albedo: .init(r: 0.7, g: 0.3, b: 0.3))
-let leftMaterial = Metal(albedo: .init(r: 0.8, g: 0.8, b: 0.3), fuzz: 0.3)
-let rightMaterial = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 1.0)
+let pinkDiffuse = Lambertian(albedo: .init(r: 0.7, g: 0.3, b: 0.3))
+let metal1 = Metal(albedo: .init(r: 0.8, g: 0.8, b: 0.3), fuzz: 0.3)
+let metal2 = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 1.0)
+let glass1_5 = Dielectric(ir: 1.5)
+let glass2 = Dielectric(ir: 2.0)
 
 let world = HittableList(objects: [
     Sphere(center: Point(x: 0.0, y: -100.5, z: -1.0), radius: 100.0, material: groundMaterial),
-    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5, material: centerMaterial),
-    Sphere(center: Point(x: -1.0, y: 0.0, z: -1.0), radius: 0.5, material: leftMaterial),
-    Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: rightMaterial),
+    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5, material: glass2),
+    Sphere(center: Point(x: -1.0, y: 0.0, z: -1.0), radius: 0.5, material: glass1_5),
+    Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: metal2),
 ])
 
 func color(for ray: Ray, depth: Int) -> Color {

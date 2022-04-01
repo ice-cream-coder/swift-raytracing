@@ -97,6 +97,17 @@ extension SIMD3 where Scalar == Double {
             return -inUnitSphere
         }
     }
+
+    static func randomInUnitDisk() -> Self {
+        while true {
+            let p = Vector(x: Double.random(in: 0...1.0),
+                           y: Double.random(in: 0...1.0),
+                           z: 0.0)
+            if p.length <= 1.0 {
+                return p
+            }
+        }
+    }
 }
 
 extension Color {
@@ -276,31 +287,42 @@ struct Camera {
     let lowerLeftCorner: Point
     let horizontal: Vector
     let vertical: Vector
+    let u, v, w: Vector
+    let lenseRadius: Double
 
     init(
         lookFrom: Point,
         lookAt: Point,
         vup: Vector,
         verticalFieldOfView: Double,
-        aspectRatio: Double
+        aspectRatio: Double,
+        aperture: Double,
+        focusDistance: Double
     ) {
         let theta = deg2rad(verticalFieldOfView)
         let h = tan(theta / 2)
         let viewportHeight = 2.0 * h;
         let viewportWidth = aspectRatio * viewportHeight;
 
-        let w = (lookFrom - lookAt).unitVector
-        let u = vup.cross(w).unitVector
-        let v = w.cross(u)
+        w = (lookFrom - lookAt).unitVector
+        u = vup.cross(w).unitVector
+        v = w.cross(u)
 
         origin = lookFrom
-        horizontal = viewportWidth * u
-        vertical = viewportHeight * v
-        lowerLeftCorner = origin - horizontal / 2 - vertical / 2 - w
+        horizontal = focusDistance * viewportWidth * u
+        vertical = focusDistance * viewportHeight * v
+        lowerLeftCorner = origin - horizontal / 2 - vertical / 2 - focusDistance * w
+
+        lenseRadius = aperture / 2
     }
 
     func getRay(s: Double, t: Double) -> Ray {
-        Ray(origin: origin, direction: lowerLeftCorner + s * horizontal + t * vertical - origin)
+        let rd = lenseRadius * Vector.randomInUnitDisk()
+        let offset = u * rd.x + v * rd.y
+        return Ray(
+            origin: origin + offset,
+            direction: lowerLeftCorner + s * horizontal + t * vertical - origin - offset
+        )
     }
 }
 
@@ -313,13 +335,54 @@ let metal1 = Metal(albedo: .init(r: 0.8, g: 0.8, b: 0.3), fuzz: 0.3)
 let metal2 = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 1.0)
 let metal3 = Metal(albedo: .init(r: 0.8, g: 0.6, b: 0.2), fuzz: 0.0)
 let glass1_5 = Dielectric(ir: 1.5)
+func randomScene() -> HittableList {
+    var world = HittableList()
 
-let world = HittableList(objects: [
-    Sphere(center: Point(x: 0.0, y: -100.5, z: -1.0), radius: 100.0, material: groundMaterial),
-    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5, material: darkBlueDiffuse),
-    Sphere(center: Point(x: -1.0, y: 0.0, z: -1.0), radius: 0.5, material: glass1_5),
-    Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: metal3),
-])
+    let groundMaterial = Lambertian(albedo: .init(r: 0.5, g: 0.5, b: 0.5))
+    world.objects.append(Sphere(center: Point(x: 0.0, y: -1000.0, z: 0.0), radius: 1000.0, material: groundMaterial))
+
+    for a in -11..<11 {
+        for b in -11..<11 {
+            let chooseMaterial = Double.random(in: 0...1.0)
+            let center =  Point(x: Double(a) + 0.9 * Double.random(in: 0...1.0),
+                                y: 0.2,
+                                z: Double(b) + 0.9 * Double.random(in: 0...1.0))
+
+            if (center - Point(x: 4.0, y: 0.2, z: 0.0)).length > 0.9 {
+                let material: Material
+                switch chooseMaterial {
+                case ..<0.8:
+                    let albedo = Color.random() * Color.random()
+                    material = Lambertian(albedo: albedo)
+                case ..<0.95:
+                    let albedo = Color.random(min: 0.5, max: 1)
+                    let fuzz = Double.random(in: 0...0.5)
+                    material = Metal(albedo: albedo, fuzz: fuzz)
+                default:
+                    material = Dielectric(ir: 1.5)
+                }
+                world.objects.append(Sphere(center: center, radius: 0.2, material: material))
+            }
+        }
+    }
+
+    let material1 = Dielectric(ir: 1.5)
+    world.objects.append(Sphere(center: Point(x: 0.0, y: 1.0, z: 0.0), radius: 1.0, material: material1))
+    let material2 = Lambertian(albedo: .init(r: -4, g: 1.0, b: 0.0))
+    world.objects.append(Sphere(center: Point(x: -4.0, y: 1.0, z: 0.0), radius: 1.0, material: material2))
+    let material3 = Metal(albedo: .init(r: 0.7, g: 0.6, b: 0.5), fuzz: 0.0)
+    world.objects.append(Sphere(center: Point(x: 4.0, y: 1.0, z: 0.0), radius: 1.0, material: material3))
+
+    return world
+}
+
+//let world = HittableList(objects: [
+//    Sphere(center: Point(x: 0.0, y: -100.5, z: -1.0), radius: 100.0, material: groundMaterial),
+//    Sphere(center: Point(x: 0.0, y: 0.0, z: -1.0), radius: 0.5, material: darkBlueDiffuse),
+//    Sphere(center: Point(x: -1.0, y: 0.0, z: -1.0), radius: 0.5, material: glass1_5),
+//    Sphere(center: Point(x: 1.0, y: 0.0, z: -1.0), radius: 0.5, material: metal3),
+//])
+
 
 //let R = cos(Double.pi / 4)
 //
@@ -327,6 +390,8 @@ let world = HittableList(objects: [
 //    Sphere(center: Point(x: -R, y: 0.0, z: -1.0), radius: R, material: blueDiffuse),
 //    Sphere(center: Point(x: R, y: 0.0, z: -1.0), radius: R, material: redDiffuse),
 //])
+
+let world = randomScene()
 
 func color(for ray: Ray, depth: Int) -> Color {
     guard depth > 0 else { return Color.black }
@@ -344,20 +409,24 @@ func color(for ray: Ray, depth: Int) -> Color {
 
 
 // Image
-let aspectRatio = 16.0 / 9.0
-let imageWidth = 400
+let aspectRatio = 3.0 / 2.0
+let imageWidth = 1200
 let imageHeight = Int(Double(imageWidth) / aspectRatio)
-let samplesPerPixel = 100
+let samplesPerPixel = 500
 let maxDepth = 50
 
 // Camera
 
+let lookFrom = Point(x: 13.0, y: 2.0, z: 3.0)
+let lookAt = Point(x: 0.0, y: 0.0, z: 0.0)
 let camera = Camera(
-    lookFrom: Point(x: -2.0, y: 2.0, z: 1.0),
-    lookAt: Point(x: 0.0, y: 0.0, z: -1.0),
+    lookFrom: lookFrom,
+    lookAt: lookAt,
     vup: Vector(x: 0.0, y: 1.0, z: 0.0),
     verticalFieldOfView: 20.0,
-    aspectRatio: aspectRatio
+    aspectRatio: aspectRatio,
+    aperture: 0.1,
+    focusDistance: 10.0
 )
 
 // Render
